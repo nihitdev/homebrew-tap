@@ -1,0 +1,155 @@
+name: Autoupdate formulas
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-yoo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+
+      - name: Get latest release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="$(
+            curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/nihitdev/yo-cli/releases/latest |
+            jq -r '.tag_name'
+          )"
+
+          version="${tag#v}"
+
+          if [[ -z "$version" || "$version" == "null" ]]; then
+            echo "Could not determine latest release" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Latest yoo version: $version"
+
+      - name: Get release checksums
+        id: checksums
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          curl -fsSL \
+            "https://github.com/nihitdev/yo-cli/releases/download/v${VERSION}/SHA256SUMS" \
+            -o /tmp/SHA256SUMS
+
+          mac_file="yoo-v${VERSION}-macos-aarch64.tar.gz"
+          linux_file="yoo-v${VERSION}-linux-x86_64.tar.gz"
+
+          mac_sha="$(awk -v f="$mac_file" '$2 == f {print $1; exit}' /tmp/SHA256SUMS)"
+          linux_sha="$(awk -v f="$linux_file" '$2 == f {print $1; exit}' /tmp/SHA256SUMS)"
+
+          [[ "$mac_sha" =~ ^[0-9a-fA-F]{64}$ ]] || {
+            echo "Invalid checksum for $mac_file" >&2
+            exit 1
+          }
+
+          [[ "$linux_sha" =~ ^[0-9a-fA-F]{64}$ ]] || {
+            echo "Invalid checksum for $linux_file" >&2
+            exit 1
+          }
+
+          echo "mac_sha=${mac_sha,,}" >> "$GITHUB_OUTPUT"
+          echo "linux_sha=${linux_sha,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Update formula
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          MAC_SHA: ${{ steps.checksums.outputs.mac_sha }}
+          LINUX_SHA: ${{ steps.checksums.outputs.linux_sha }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("Formula/yoo.rb")
+          text = path.read_text()
+
+          version = os.environ["VERSION"]
+          mac_sha = os.environ["MAC_SHA"]
+          linux_sha = os.environ["LINUX_SHA"]
+
+          text = re.sub(
+              r'version "[^"]+"',
+              f'version "{version}"',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'https://github\.com/nihitdev/yo-cli/releases/download/v[^/]+/yoo-v[^/]+-macos-aarch64\.tar\.gz',
+              f'https://github.com/nihitdev/yo-cli/releases/download/v{version}/yoo-v{version}-macos-aarch64.tar.gz',
+              text,
+              count=1,
+          )
+
+          text = re.sub(
+              r'https://github\.com/nihitdev/yo-cli/releases/download/v[^/]+/yoo-v[^/]+-linux-x86_64\.tar\.gz',
+              f'https://github.com/nihitdev/yo-cli/releases/download/v{version}/yoo-v{version}-linux-x86_64.tar.gz',
+              text,
+              count=1,
+          )
+
+          shas = list(re.finditer(r'sha256 "[0-9a-fA-F]{64}"', text))
+
+          if len(shas) != 2:
+              raise SystemExit(
+                  f"Expected exactly 2 SHA-256 entries, found {len(shas)}"
+              )
+
+          replacements = [
+              f'sha256 "{mac_sha}"',
+              f'sha256 "{linux_sha}"',
+          ]
+
+          for match, replacement in reversed(list(zip(shas, replacements))):
+              text = text[:match.start()] + replacement + text[match.end():]
+
+          path.write_text(text)
+          PY
+
+      - name: Validate
+        run: |
+          ruby -c Formula/yoo.rb
+          git diff --check
+
+      - name: Commit changes
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- Formula/yoo.rb; then
+            echo "Formula already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Formula/yoo.rb
+          git commit -m "chore: update yoo to ${VERSION}"
+          git push origin HEAD:master

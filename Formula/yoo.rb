@@ -1,20 +1,20 @@
 class Yoo < Formula
   desc "Local CLI for project, Git, and development environment information"
   homepage "https://github.com/nihitdev/yo-cli"
-  version "1.0.0"
+  version "1.1.1"
   license "GPL-3.0-or-later"
 
   on_macos do
     on_arm do
-      url "https://github.com/nihitdev/yo-cli/releases/download/v1.0.0/yoo-v1.0.0-macos-aarch64.tar.gz"
-      sha256 "76bc5805375d3d2413eec08744fb4b1733d1131068e7525379d3d3a58d000370"
+      url "https://github.com/nihitdev/yo-cli/releases/download/v1.1.1/yoo-v1.1.1-macos-aarch64.tar.gz"
+      sha256 "03230cc9834e98a18209f5168ef2b81012908fcf021cbf57d34bf26fa09d6ac4"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/nihitdev/yo-cli/releases/download/v1.0.0/yoo-v1.0.0-linux-x86_64.tar.gz"
-      sha256 "d09d5f0a5f471f30d6516e68f53ed134520909654958d073c8c6cae96197715d"
+      url "https://github.com/nihitdev/yo-cli/releases/download/v1.1.1/yoo-v1.1.1-linux-x86_64.tar.gz"
+      sha256 "c842c0b09cbbab21e2e1b1972771c2d0a55af957e699f1d70402f303badde9a3"
     end
   end
 
